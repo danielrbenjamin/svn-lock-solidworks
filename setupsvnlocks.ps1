@@ -1,99 +1,138 @@
+<#
+.SYNOPSIS
+    Configures Subversion (SVN) to enable auto-props and add specific rules for SolidWorks files.
+
+.DESCRIPTION
+    This script updates the user's SVN configuration file to:
+    - Enable the 'enable-auto-props' option.
+    - Add SVN auto-props for SolidWorks files (*.sldprt, *.sldasm, *.slddrw) to require locking.
+
+    The script creates a timestamped backup before making changes and handles errors gracefully.
+
+.PARAMETER Pause
+    If specified, pauses at the end and waits for user input before exiting.
+
+.EXAMPLE
+    .\Enable-SolidWorksSvnAutoProps.ps1
+    Runs the script without pausing.
+
+.EXAMPLE
+    .\Enable-SolidWorksSvnAutoProps.ps1 -Pause
+    Runs the script and pauses at the end.
+
+.NOTES
+    Requires PowerShell 3.0 or later.
+    Author: [Your Name]
+    Date: September 18, 2025
+#>
+
+[CmdletBinding()]
+param(
+    [switch]$Pause
+)
+
 # Enable strict mode for better error handling
 Set-StrictMode -Version Latest
 
-# Path to SVN config for current Windows user
-$svnConfig = Join-Path $env:APPDATA "Subversion\config"
-
-# Check if the config file exists
-if (-not (Test-Path $svnConfig)) {
-    Write-Host "Error: SVN configuration file not found at $svnConfig" -ForegroundColor Red
-    exit 1
-}
-
-# Create a unique backup file name with timestamp
-$backupPath = "${svnConfig}.backup.$(Get-Date -Format 'yyyyMMdd_HHmmss')"
-try {
-    Copy-Item -Path $svnConfig -Destination $backupPath -ErrorAction Stop
-    Write-Host "Backup created at: $backupPath" -ForegroundColor Yellow
-}
-catch {
-    Write-Host "Error: Failed to create backup. $_" -ForegroundColor Red
-    exit 1
-}
-
-# Read current config with UTF-8 encoding
-try {
-    $configContent = Get-Content -Path $svnConfig -Raw -Encoding UTF8 -ErrorAction Stop
-}
-catch {
-    Write-Host "Error: Failed to read config file. $_" -ForegroundColor Red
-    exit 1
-}
-
-# Detect line ending style (CRLF or LF)
-$lineEnding = if ($configContent -match "\r\n") { "`r`n" } else { "`n" }
-
-# Uncomment or add enable-auto-props
-if ($configContent -match '^\s*#\s*enable-auto-props\s*=\s*yes\s*$') {
-    $configContent = $configContent -replace '\s*#\s*enable-auto-props\s*=\s*yes\s*$', 'enable-auto-props = yes'
-}
-elseif ($configContent -notmatch '^\s*enable-auto-props\s*=\s*yes\s*$') {
-    $configContent = $configContent.TrimEnd() + "$lineEnding" + "enable-auto-props = yes$lineEnding"
-}
-
-# Define SolidWorks auto-props lines
-$solidWorksProps = @(
-    "*.sldprt = svn:needs-lock=yes",
-    "*.sldasm = svn:needs-lock=yes",
-    "*.slddrw = svn:needs-lock=yes"
+# Define constants
+$ConfigPath = Join-Path $env:APPDATA 'Subversion\config'
+$EnableAutoPropsKey = 'enable-auto-props'
+$EnableAutoPropsValue = 'yes'
+$SvnProps = @(
+    '*.sldprt = svn:needs-lock=yes',
+    '*.sldasm = svn:needs-lock=yes',
+    '*.slddrw = svn:needs-lock=yes'
 )
 
-# Insert SolidWorks entries into [auto-props] section
-$autoPropsRegex = '\[auto-props\](?:\r?\n.*?)*?(?=\r?\n\[|\r?\n*$)'
-$autoPropsMatch = [regex]::Match($configContent, $autoPropsRegex, [System.Text.RegularExpressions.RegexOptions]::Singleline)
-
-if ($autoPropsMatch.Success) {
-    $section = $autoPropsMatch.Value
-    foreach ($prop in $solidWorksProps) {
-        if ($section -notmatch "(?mi)^\s*\Q$prop\E\s*$") {
-            $section = $section.TrimEnd() + "$lineEnding$prop"
-        }
-    }
-    $configContent = $configContent -replace [regex]::Escape($autoPropsMatch.Value), $section
-}
-else {
-    # Try to insert after [miscellany], else append at end
-    $miscRegex = '(?mi)^\[miscellany\](?:\r?\n.*?)*?(?=\r?\n\[|\r?\n*$)'
-    $miscMatch = [regex]::Match($configContent, $miscRegex, [System.Text.RegularExpressions.RegexOptions]::Singleline)
-
-    $newSection = "[auto-props]$lineEnding" + ($solidWorksProps -join $lineEnding) + $lineEnding
-
-    if ($miscMatch.Success) {
-        # Insert right after [miscellany] block
-        $insertPos = $miscMatch.Index + $miscMatch.Length
-        $configContent = $configContent.Insert($insertPos, "$lineEnding$newSection")
-    }
-    else {
-        # Append at end if [miscellany] not found
-        $configContent = $configContent.TrimEnd() + "$lineEnding$newSection"
-    }
+# Function to write colored host messages
+function Write-ColorHost {
+    param(
+        [string]$Message,
+        [System.ConsoleColor]$ForegroundColor = 'White'
+    )
+    Write-Host $Message -ForegroundColor $ForegroundColor
 }
 
-# Write updated config back safely
-try {
-    $tempFile = "$svnConfig.tmp"
-    Set-Content -Path $tempFile -Value $configContent -Encoding UTF8 -ErrorAction Stop
-    Move-Item -Path $tempFile -Destination $svnConfig -Force
-}
-catch {
-    Write-Host "Error: Failed to write config file. $_" -ForegroundColor Red
+# Function to exit with error
+function Exit-WithError {
+    param([string]$Message)
+    Write-ColorHost $Message -ForegroundColor Red
     exit 1
 }
 
-# Success message
-Write-Host "SolidWorks SVN auto-props have been successfully applied and enable-auto-props is enabled." -ForegroundColor Green
+# Validate config file existence
+if (-not (Test-Path $ConfigPath)) {
+    Exit-WithError "SVN configuration file not found at: $ConfigPath"
+}
 
-# Optional pause (controlled via parameter)
-if ($args -contains "-Pause") {
+# Create timestamped backup
+$Timestamp = Get-Date -Format 'yyyyMMdd_HHmmss'
+$BackupPath = "${ConfigPath}.backup.$Timestamp"
+try {
+    Copy-Item -Path $ConfigPath -Destination $BackupPath -ErrorAction Stop
+    Write-ColorHost "Backup created at: $BackupPath" -ForegroundColor Yellow
+} catch {
+    Exit-WithError "Failed to create backup: $($_.Exception.Message)"
+}
+
+# Read config content
+try {
+    $ConfigContent = Get-Content -Path $ConfigPath -Raw -Encoding UTF8 -ErrorAction Stop
+} catch {
+    Exit-WithError "Failed to read config file: $($_.Exception.Message)"
+}
+
+# Detect line ending
+$LineEnding = if ($ConfigContent -match "`r`n") { "`r`n" } else { "`n" }
+
+# Update or add enable-auto-props
+$CommentedPattern = '^\s*#\s*' + [regex]::Escape($EnableAutoPropsKey) + '\s*=\s*' + [regex]::Escape($EnableAutoPropsValue) + '\s*$'
+$UncommentedPattern = '^\s*' + [regex]::Escape($EnableAutoPropsKey) + '\s*=\s*' + [regex]::Escape($EnableAutoPropsValue) + '\s*$'
+
+if ($ConfigContent -match $CommentedPattern) {
+    $ConfigContent = $ConfigContent -replace $CommentedPattern, "$EnableAutoPropsKey = $EnableAutoPropsValue"
+} elseif ($ConfigContent -notmatch $UncommentedPattern) {
+    # Find a suitable insertion point (after a section header or at the end)
+    $InsertionPointPattern = '(?m)^\s*\[\w+.*?\](?=\s*(?:\[|\Z))|(?=\Z)'
+    if ($ConfigContent -match $InsertionPointPattern) {
+        $ConfigContent = $ConfigContent -replace $InsertionPointPattern, "`${0}${LineEnding}${EnableAutoPropsKey} = $EnableAutoPropsValue${LineEnding}"
+    } else {
+        $ConfigContent = $ConfigContent.TrimEnd() + $LineEnding + "${EnableAutoPropsKey} = $EnableAutoPropsValue$LineEnding"
+    }
+}
+
+# Handle [auto-props] section
+$SectionPattern = '\[auto-props\](?:(?!\[).)*?(?=\[|\Z)'
+$SectionMatch = [regex]::Match($ConfigContent, $SectionPattern, [System.Text.RegularExpressions.RegexOptions]::Singleline)
+
+if ($SectionMatch.Success) {
+    $SectionContent = $SectionMatch.Value
+    $UpdatedSection = $SectionContent
+    foreach ($Prop in $SvnProps) {
+        $EscapedProp = [regex]::Escape($Prop)
+        $PropPattern = '^\s*' + $EscapedProp + '\s*$'
+        if ($SectionContent -notmatch $PropPattern) {
+            $UpdatedSection += $LineEnding + $Prop
+        }
+    }
+    if ($UpdatedSection -ne $SectionContent) {
+        $ConfigContent = $ConfigContent -replace [regex]::Escape($SectionMatch.Value), $UpdatedSection.TrimEnd()
+    }
+} else {
+    # Add new [auto-props] section at the end
+    $NewSection = "[auto-props]$LineEnding" + ($SvnProps -join $LineEnding) + $LineEnding
+    $ConfigContent = $ConfigContent.TrimEnd() + $LineEnding + $NewSection
+}
+
+# Write updated config
+try {
+    Set-Content -Path $ConfigPath -Value $ConfigContent -Encoding UTF8 -ErrorAction Stop
+    Write-ColorHost "SVN configuration updated successfully. Auto-props for SolidWorks files enabled." -ForegroundColor Green
+} catch {
+    Exit-WithError "Failed to write config file: $($_.Exception.Message)"
+}
+
+# Optional pause
+if ($Pause) {
     Read-Host -Prompt "Press Enter to exit"
 }
