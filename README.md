@@ -1,0 +1,1 @@
+`invoke-WebRequest -Uri "https://raw.githubusercontent.com/danielrbenjamin/svn-lock-solidworks/refs/heads/main/setupsvnlocks.ps1" -OutFile "$env:TEMP\setupsvnlocks.ps1"; powershell -ExecutionPolicy Bypass -File "$env:TEMP\setupsvnlocks.ps1"`
