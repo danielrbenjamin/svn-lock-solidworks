@@ -62,7 +62,7 @@ if ($missingRules.Count -gt 0) {
             if ($endIdx) {
                 $before = $config[0..($endIdx-2)]
                 $after = $config[($endIdx-1)..($config.Length-1)]
-                $config = $before + $missingRules + '' + $after
+                $config = $before + $missingRules + '`n' + $after
             } else {
                 # [auto-props] is the last section, append at end
                 $config += $missingRules
@@ -72,7 +72,6 @@ if ($missingRules.Count -gt 0) {
     } else {
         # No [auto-props], append fresh section at EOF
         $config += '[auto-props]'
-        $config += '# Makefile = svn:eol-style=native'
         $config += $missingRules
         $config += ''
     }
@@ -81,3 +80,4 @@ if ($missingRules.Count -gt 0) {
 # --- Write back safely ---
 Set-Content -Path $svnConfig -Value $config -Encoding UTF8
 Write-Host "Config patched successfully."
+
