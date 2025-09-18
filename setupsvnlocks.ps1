@@ -1,7 +1,7 @@
 # Path to SVN config file
 $svnConfig = "$env:APPDATA\Subversion\config"
 
-# Backup existing config
+# Backup existing config with timestamp
 $backupPath = "${svnConfig}.bak_$(Get-Date -Format 'yyyyMMddHHmmss')"
 Copy-Item -Path $svnConfig -Destination $backupPath -Force
 Write-Host "Backup created at: $backupPath"
@@ -27,43 +27,55 @@ if (-not $foundEnable) {
     }
 }
 
-# --- 2. Ensure SolidWorks auto-props ---
-$autoProps = @(
+# --- 2. SolidWorks rules handling ---
+$rules = @(
     '*.sldprt = svn:needs-lock=yes',
     '*.sldasm = svn:needs-lock=yes',
     '*.slddrw = svn:needs-lock=yes'
 )
 
-foreach ($prop in $autoProps) {
-    $pattern = '^\s*#?\s*' + [regex]::Escape($prop.Split('=')[0].Trim()) + '\s*='
-    $existingIndex = $null
-
-    for ($i = 0; $i -lt $config.Length; $i++) {
-        if ($config[$i] -match $pattern) {
-            $existingIndex = $i
-            break
-        }
+# Track which rules already exist
+$missingRules = @()
+foreach ($rule in $rules) {
+    $pattern = '^\s*' + [regex]::Escape($rule.Split('=')[0].Trim()) + '\s*='
+    if (-not ($config -match $pattern)) {
+        $missingRules += $rule
     }
+}
 
-    if ($null -ne $existingIndex) {
-        # Replace existing (commented or different value)
-        $config[$existingIndex] = $prop
-    } else {
-        # Insert into [auto-props] section if present
-        $idx = ($config | Select-String '^\[auto-props\]').LineNumber
-        if ($idx) {
-            # LineNumber is 1-based, so subtract 1 for array index
-            $insertAt = $idx     # this points to the [auto-props] line
-            $config = $config[0..$insertAt] + $prop + $config[($insertAt+1)..($config.Length-1)]
+if ($missingRules.Count -gt 0) {
+    # Find [auto-props] section
+    $autoPropsIdx = ($config | Select-String '^\[auto-props\]').LineNumber
+
+    if ($autoPropsIdx) {
+        # Look for "# Makefile = svn:eol-style=native" marker
+        $markerIdx = ($config | Select-String '^\s*#\s*Makefile\s*=\s*svn:eol-style=native').LineNumber
+        if ($markerIdx) {
+            # Insert immediately after the marker
+            $before = $config[0..$markerIdx]
+            $after = $config[($markerIdx+1)..($config.Length-1)]
+            $config = $before + $missingRules + $after
         } else {
-            # Append a new section at the end
-            $config += '[auto-props]'
-            $config += $prop
+            # No marker, so append at the end of [auto-props]
+            # Find where the section ends (next [section] or EOF)
+            $endIdx = ($config | Select-String '^\[' | Where-Object { $_.LineNumber -gt $autoPropsIdx } | Select-Object -First 1).LineNumber
+            if ($endIdx) {
+                $before = $config[0..($endIdx-2)]
+                $after = $config[($endIdx-1)..($config.Length-1)]
+                $config = $before + $missingRules + $after
+            } else {
+                # [auto-props] is the last section, append at end
+                $config += $missingRules
+            }
         }
+    } else {
+        # No [auto-props], append fresh section at EOF
+        $config += '[auto-props]'
+        $config += '# Makefile = svn:eol-style=native'
+        $config += $missingRules
     }
 }
 
 # --- Write back safely ---
 Set-Content -Path $svnConfig -Value $config -Encoding UTF8
-Write-Host "Config file patched successfully. Safe to re-run (idempotent)."
-
+Write-Host "Config patched successfully."
