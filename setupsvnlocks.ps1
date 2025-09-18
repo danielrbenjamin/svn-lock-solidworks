@@ -1,7 +1,7 @@
 # Enable strict mode for better error handling
 Set-StrictMode -Version Latest
 
-# Path to SVN config for current user
+# Path to SVN config for current Windows user
 $svnConfig = Join-Path $env:APPDATA "Subversion\config"
 
 # Check if the config file exists
@@ -35,11 +35,9 @@ $lineEnding = if ($configContent -match "\r\n") { "`r`n" } else { "`n" }
 
 # Uncomment or add enable-auto-props
 if ($configContent -match '^\s*#\s*enable-auto-props\s*=\s*yes\s*$') {
-    # Replace commented line with uncommented
-    $configContent = $configContent -replace '^\s*#\s*enable-auto-props\s*=\s*yes\s*$', 'enable-auto-props = yes'
+    $configContent = $configContent -replace '\s*#\s*enable-auto-props\s*=\s*yes\s*$', 'enable-auto-props = yes'
 }
 elseif ($configContent -notmatch '^\s*enable-auto-props\s*=\s*yes\s*$') {
-    # Add it if missing entirely
     $configContent = $configContent.TrimEnd() + "$lineEnding" + "enable-auto-props = yes$lineEnding"
 }
 
@@ -57,22 +55,35 @@ $autoPropsMatch = [regex]::Match($configContent, $autoPropsRegex, [System.Text.R
 if ($autoPropsMatch.Success) {
     $section = $autoPropsMatch.Value
     foreach ($prop in $solidWorksProps) {
-        # Normalize for comparison (remove extra spaces)
-        $normalizedProp = [regex]::Escape($prop.Trim())
-        if ($section -notmatch "^\s*$normalizedProp\s*$") {
+        if ($section -notmatch "(?mi)^\s*\Q$prop\E\s*$") {
             $section = $section.TrimEnd() + "$lineEnding$prop"
         }
     }
     $configContent = $configContent -replace [regex]::Escape($autoPropsMatch.Value), $section
 }
 else {
-    # Add new [auto-props] section
-    $configContent = $configContent.TrimEnd() + "$lineEnding" + "[auto-props]$lineEnding" + ($solidWorksProps -join $lineEnding) + $lineEnding
+    # Try to insert after [miscellany], else append at end
+    $miscRegex = '(?mi)^\[miscellany\](?:\r?\n.*?)*?(?=\r?\n\[|\r?\n*$)'
+    $miscMatch = [regex]::Match($configContent, $miscRegex, [System.Text.RegularExpressions.RegexOptions]::Singleline)
+
+    $newSection = "[auto-props]$lineEnding" + ($solidWorksProps -join $lineEnding) + $lineEnding
+
+    if ($miscMatch.Success) {
+        # Insert right after [miscellany] block
+        $insertPos = $miscMatch.Index + $miscMatch.Length
+        $configContent = $configContent.Insert($insertPos, "$lineEnding$newSection")
+    }
+    else {
+        # Append at end if [miscellany] not found
+        $configContent = $configContent.TrimEnd() + "$lineEnding$newSection"
+    }
 }
 
-# Write updated config back
+# Write updated config back safely
 try {
-    Set-Content -Path $svnConfig -Value $configContent -Encoding UTF8 -Force -ErrorAction Stop
+    $tempFile = "$svnConfig.tmp"
+    Set-Content -Path $tempFile -Value $configContent -Encoding UTF8 -ErrorAction Stop
+    Move-Item -Path $tempFile -Destination $svnConfig -Force
 }
 catch {
     Write-Host "Error: Failed to write config file. $_" -ForegroundColor Red
@@ -82,7 +93,7 @@ catch {
 # Success message
 Write-Host "SolidWorks SVN auto-props have been successfully applied and enable-auto-props is enabled." -ForegroundColor Green
 
-# Optional pause (controlled via parameter or environment)
+# Optional pause (controlled via parameter)
 if ($args -contains "-Pause") {
     Read-Host -Prompt "Press Enter to exit"
 }
