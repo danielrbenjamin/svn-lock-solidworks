@@ -54,7 +54,7 @@ if ($missingRules.Count -gt 0) {
             # Insert immediately after the marker
             $before = $config[0..$markerIdx]
             $after = $config[($markerIdx+1)..($config.Length-1)]
-            $config = $before + $missingRules + $after
+            $config = $before + $missingRules + '' + $after
         } else {
             # No marker, so append at the end of [auto-props]
             # Find where the section ends (next [section] or EOF)
@@ -62,10 +62,11 @@ if ($missingRules.Count -gt 0) {
             if ($endIdx) {
                 $before = $config[0..($endIdx-2)]
                 $after = $config[($endIdx-1)..($config.Length-1)]
-                $config = $before + $missingRules + $after
+                $config = $before + $missingRules + '' + $after
             } else {
                 # [auto-props] is the last section, append at end
                 $config += $missingRules
+                $config += ''
             }
         }
     } else {
@@ -73,6 +74,7 @@ if ($missingRules.Count -gt 0) {
         $config += '[auto-props]'
         $config += '# Makefile = svn:eol-style=native'
         $config += $missingRules
+        $config += ''
     }
 }
 
