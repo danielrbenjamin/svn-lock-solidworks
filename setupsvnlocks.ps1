@@ -52,7 +52,9 @@ foreach ($prop in $autoProps) {
         # Insert into [auto-props] section if present
         $idx = ($config | Select-String '^\[auto-props\]').LineNumber
         if ($idx) {
-            $config = $config[0..$idx] + $prop + $config[($idx+1)..($config.Length-1)]
+            # LineNumber is 1-based, so subtract 1 for array index
+            $insertAt = $idx     # this points to the [auto-props] line
+            $config = $config[0..$insertAt] + $prop + $config[($insertAt+1)..($config.Length-1)]
         } else {
             # Append a new section at the end
             $config += '[auto-props]'
@@ -64,3 +66,4 @@ foreach ($prop in $autoProps) {
 # --- Write back safely ---
 Set-Content -Path $svnConfig -Value $config -Encoding UTF8
 Write-Host "Config file patched successfully. Safe to re-run (idempotent)."
+
