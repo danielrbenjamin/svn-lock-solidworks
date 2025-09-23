@@ -14,7 +14,14 @@ Add-Type -AssemblyName PresentationFramework
 
 function Show-Dialog($filePath, $message, $title, $buttons = "OK") {
     $fullMessage = "File: $filePath`n`n$message"
-    return [System.Windows.MessageBox]::Show($fullMessage, $title, $buttons)
+    return [System.Windows.MessageBox]::Show(
+        $fullMessage,
+        $title,
+        $buttons,
+        [System.Windows.MessageBoxImage]::Information,
+        [System.Windows.MessageBoxResult]::OK,
+        [System.Windows.MessageBoxOptions]::DefaultDesktopOnly
+    )
 }
 
 # Get current SVN username
