@@ -15,17 +15,28 @@ Add-Type -AssemblyName PresentationFramework
 function Show-Dialog($filePath, $message, $title, $buttons = "OK") {
     $fullMessage = "File: $filePath`n`n$message"
     return [System.Windows.MessageBox]::Show(
-        $fullMessage,
-        $title,
+        $fullMessage, 
+        $title, 
         $buttons,
         [System.Windows.MessageBoxImage]::Information,
         [System.Windows.MessageBoxResult]::OK,
-        [System.Windows.MessageBoxOptions]::DefaultDesktopOnly
-    )
+        [System.Windows.MessageBoxOptions]::DefaultDesktopOnly)
 }
 
-# Get current SVN username
-$svnUser = svn info --show-item=username 2>$null
+# More robust SVN username detection
+$svnUser = ""
+try {
+    $svnUser = & svn auth 2>$null | Where-Object { $_ -match '^\s*Username:\s*(.+)$' } | 
+        ForEach-Object { $matches[1] } | Select-Object -First 1
+    
+    if (-not $svnUser) {
+        $svnUser = (& svn info --show-item=username 2>$null).Trim()
+    }
+} catch {
+    Write-Warning "Could not determine SVN username"
+}
+
+$svnUser = [string]$svnUser
 
 # ---------------------------------------------------------------------------
 # PROCESS EACH FILE
@@ -57,7 +68,8 @@ foreach ($FilePath in $FilePaths) {
     # STEP 4. Decide what to do
     if ($lockOwner) {
         if ($lockOwner -eq $svnUser) {
-            # You own the lock → open normally
+            # You own the lock → show dialog then open normally
+            $null = Show-Dialog $FilePath "This file is locked by you." "SVN Lock" "OK"
             Start-Process -FilePath $swLauncher -ArgumentList "`"$FilePath`""
         } else {
             # Locked by someone else → ask read-only
@@ -74,11 +86,11 @@ foreach ($FilePath in $FilePaths) {
         if ($result -eq "Yes") {
             svn lock --force -- "$FilePath" | Out-Null
             if ($LASTEXITCODE -eq 0) {
-                Show-Dialog $FilePath "Lock acquired. Opening file..." "SVN Lock" "OK"
+                $null = Show-Dialog $FilePath "Lock acquired. Opening file..." "SVN Lock" "OK"
                 Start-Process -FilePath $swLauncher -ArgumentList "`"$FilePath`""
             }
             else {
-                Show-Dialog $FilePath "Failed to acquire lock." "SVN Lock" "OK"
+                $null = Show-Dialog $FilePath "Failed to acquire lock." "SVN Lock" "OK"
             }
         }
         elseif ($result -eq "No") {
